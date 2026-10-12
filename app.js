@@ -15,6 +15,26 @@ const CATEGORIES = [
 ];
 const catById = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
 
+// 환율은 "unit 단위당 원화"로 저장한다. (엔화는 은행 앱처럼 100엔 기준)
+// def는 처음 쓸 때 채워 두는 대략적인 값이므로, 사용자가 직접 확인해 고쳐야 한다.
+const CURRENCIES = [
+  { code: 'KRW', name: '원', symbol: '', unit: 1, decimals: 0 },
+  { code: 'USD', name: '미국 달러', symbol: '$', unit: 1, decimals: 2, def: 1400 },
+  { code: 'EUR', name: '유로', symbol: '€', unit: 1, decimals: 2, def: 1600 },
+  { code: 'JPY', name: '일본 엔', symbol: '¥', unit: 100, decimals: 0, def: 930 },
+  { code: 'CNY', name: '중국 위안', symbol: 'CN¥', unit: 1, decimals: 2, def: 195 },
+  { code: 'GBP', name: '영국 파운드', symbol: '£', unit: 1, decimals: 2, def: 1850 },
+  { code: 'HKD', name: '홍콩 달러', symbol: 'HK$', unit: 1, decimals: 2, def: 180 },
+  { code: 'AUD', name: '호주 달러', symbol: 'A$', unit: 1, decimals: 2, def: 900 },
+  { code: 'CAD', name: '캐나다 달러', symbol: 'C$', unit: 1, decimals: 2, def: 1000 },
+];
+const curByCode = Object.fromEntries(CURRENCIES.map((c) => [c.code, c]));
+const FOREIGN = CURRENCIES.filter((c) => c.code !== 'KRW');
+
+function defaultRates() {
+  return Object.fromEntries(FOREIGN.map((c) => [c.code, c.def]));
+}
+
 // ---------- 상태 ----------
 let state = load();
 let editingId = null;
@@ -27,7 +47,12 @@ function load() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const data = JSON.parse(raw);
-      return { assets: data.assets || [], history: data.history || [] };
+      return {
+        assets: (data.assets || []).map((a) => ({ ...a, currency: curByCode[a.currency] ? a.currency : 'KRW' })),
+        history: data.history || [],
+        rates: { ...defaultRates(), ...(data.rates || {}) },
+        ratesDate: data.ratesDate || '',
+      };
     }
   } catch (e) {
     console.warn('저장된 데이터를 불러오지 못했습니다.', e);
@@ -48,23 +73,26 @@ function sampleData() {
       { id: 's3', category: 'stock', name: '삼성전자', institution: '키움증권', value: 7120000, cost: 6300000, memo: '100주' },
       { id: 's4', category: 'fund', name: 'TIGER 미국S&P500', institution: '미래에셋증권', value: 9860000, cost: 8000000, memo: '' },
       { id: 's5', category: 'crypto', name: '비트코인', institution: '업비트', value: 2310000, cost: 3000000, memo: '' },
+      { id: 's8', category: 'stock', name: '애플 (AAPL)', institution: '토스증권', value: 2150.4, cost: 1820, memo: '9주', currency: 'USD' },
       { id: 's6', category: 'pension', name: '연금저축펀드', institution: '삼성증권', value: 6540000, cost: 6000000, memo: '' },
       { id: 's7', category: 'debt', name: '학자금 대출', institution: '한국장학재단', value: 4200000, cost: 0, memo: '' },
     ],
     history: [
-      { date: d(5), net: 30100000 },
-      { date: d(4), net: 31250000 },
-      { date: d(3), net: 30800000 },
-      { date: d(2), net: 33400000 },
-      { date: d(1), net: 35900000 },
+      { date: d(5), net: 32300000 },
+      { date: d(4), net: 33450000 },
+      { date: d(3), net: 33000000 },
+      { date: d(2), net: 35600000 },
+      { date: d(1), net: 38200000 },
     ],
+    rates: defaultRates(),
+    ratesDate: '',
   };
 }
 
 function leaveSample() {
   if (!sampleMode) return;
   sampleMode = false;
-  state = { assets: [], history: [] };
+  state = { assets: [], history: [], rates: defaultRates(), ratesDate: '' };
 }
 
 function save() {
@@ -88,6 +116,49 @@ function shortWon(n) {
   if (abs >= 1e8) return `${sign}${(abs / 1e8).toFixed(abs >= 1e10 ? 0 : 1)}억`;
   if (abs >= 1e4) return `${sign}${Math.round(abs / 1e4).toLocaleString('ko-KR')}만`;
   return `${sign}${Math.round(abs)}`;
+}
+
+function cur(code) {
+  return curByCode[code] || curByCode.KRW;
+}
+
+function rateOf(code) {
+  const c = cur(code);
+  if (c.code === 'KRW') return 1;
+  return (Number(state.rates?.[c.code]) || c.def) / c.unit;
+}
+
+// 자산의 원래 통화 금액을 원화로 바꾼다.
+function toKrw(amount, code) {
+  return amount * rateOf(code);
+}
+const krwValue = (a) => toKrw(a.value, a.currency);
+const krwCost = (a) => toKrw(a.cost, a.currency);
+
+function fmtAmount(n, code) {
+  const c = cur(code);
+  if (c.code === 'KRW') return won(n);
+  return `${c.symbol}${Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: c.decimals })}`;
+}
+
+function fmtRate(code, rates = state.rates) {
+  const c = cur(code);
+  return `${c.unit === 1 ? '' : c.unit}${c.code} ${Number(rates?.[c.code] || c.def).toLocaleString('ko-KR', { maximumFractionDigits: 2 })}원`;
+}
+
+// 입력 중인 금액에 천 단위 콤마를 넣는다. 외화는 소수점을 허용한다.
+function formatAmountInput(str, code) {
+  const c = cur(code);
+  let clean = String(str).replace(/[^\d.]/g, '');
+  if (!c.decimals) clean = clean.replace(/\./g, '');
+  const [intPart, ...rest] = clean.split('.');
+  const intFmt = intPart ? Number(intPart).toLocaleString('ko-KR') : (rest.length ? '0' : '');
+  return rest.length ? `${intFmt}.${rest.join('').slice(0, c.decimals)}` : intFmt;
+}
+
+function amountForInput(n, code) {
+  if (!n) return '';
+  return formatAmountInput(String(Number(Number(n).toFixed(cur(code).decimals))), code);
 }
 
 function pct(n) {
@@ -145,14 +216,15 @@ function totals() {
   const byCat = {};
   for (const a of state.assets) {
     const cat = catById[a.category] || catById.etc;
+    const value = krwValue(a);
     if (cat.liability) {
-      debts += a.value;
+      debts += value;
     } else {
-      assets += a.value;
-      byCat[cat.id] = (byCat[cat.id] || 0) + a.value;
+      assets += value;
+      byCat[cat.id] = (byCat[cat.id] || 0) + value;
       if (a.cost > 0) {
-        invested += a.cost;
-        investedValue += a.value;
+        invested += krwCost(a);
+        investedValue += value;
       }
     }
   }
@@ -169,6 +241,7 @@ function totals() {
 // ---------- 렌더링 ----------
 function render() {
   $('#sample-banner').hidden = !sampleMode;
+  renderFxNote();
   const t = totals();
   renderSummary(t);
   renderDonut(t);
@@ -272,12 +345,13 @@ function renderTable(t) {
     .sort((a, b) => {
       const ca = CATEGORIES.findIndex((c) => c.id === a.category);
       const cb = CATEGORIES.findIndex((c) => c.id === b.category);
-      return ca - cb || b.value - a.value;
+      return ca - cb || krwValue(b) - krwValue(a);
     });
 
   $('#asset-rows').innerHTML = rows.map((a) => {
     const cat = catById[a.category] || catById.etc;
-    const share = cat.liability || !t.assets ? '' : `${((a.value / t.assets) * 100).toFixed(1)}%`;
+    const share = cat.liability || !t.assets ? '' : `${((krwValue(a) / t.assets) * 100).toFixed(1)}%`;
+    const foreign = a.currency && a.currency !== 'KRW';
     let ret = '-';
     if (!cat.liability && a.cost > 0) {
       const r = ((a.value - a.cost) / a.cost) * 100;
@@ -288,7 +362,7 @@ function renderTable(t) {
         <td><span class="badge"><span class="dot" style="background:${cat.color}"></span>${cat.name}</span></td>
         <td>${escapeHtml(a.name)}${a.memo ? `<span class="memo">${escapeHtml(a.memo)}</span>` : ''}</td>
         <td>${escapeHtml(a.institution) || '-'}</td>
-        <td class="num value">${cat.liability ? '-' : ''}${won(a.value)}</td>
+        <td class="num value">${cat.liability ? '-' : ''}${won(krwValue(a))}${foreign ? `<span class="memo">${fmtAmount(a.value, a.currency)}</span>` : ''}</td>
         <td class="num">${ret}</td>
         <td class="num">${share}</td>
         <td>
@@ -313,13 +387,15 @@ function openDialog(asset) {
   form.reset();
   const f = form.elements;
   f.category.value = asset ? asset.category : ($('#filter').value !== 'all' ? $('#filter').value : 'cash');
+  f.currency.value = asset?.currency || 'KRW';
   if (asset) {
     f.name.value = asset.name;
     f.institution.value = asset.institution || '';
-    f.value.value = asset.value.toLocaleString('ko-KR');
-    f.cost.value = asset.cost ? asset.cost.toLocaleString('ko-KR') : '';
+    f.value.value = amountForInput(asset.value, f.currency.value);
+    f.cost.value = amountForInput(asset.cost, f.currency.value);
     f.memo.value = asset.memo || '';
   }
+  updateFormCurrency();
   dialog.showModal();
   f.name.focus();
 }
@@ -331,6 +407,7 @@ form.addEventListener('submit', (e) => {
     category: f.category.value,
     name: f.name.value.trim(),
     institution: f.institution.value.trim(),
+    currency: f.currency.value,
     value: parseNum(f.value.value),
     cost: parseNum(f.cost.value),
     memo: f.memo.value.trim(),
@@ -347,13 +424,31 @@ form.addEventListener('submit', (e) => {
   render();
 });
 
-// 금액 입력 시 천 단위 콤마 표시
+// 통화에 맞춰 금액 칸 이름과 원화 환산 안내를 바꾼다.
+function updateFormCurrency() {
+  const f = form.elements;
+  const code = f.currency.value;
+  const c = cur(code);
+  const unitLabel = c.code === 'KRW' ? '원' : c.code;
+  $('#value-label').textContent = `평가금액 (${unitLabel})`;
+  $('#cost-label').textContent = `매입금액 (${unitLabel}, 선택)`;
+  const v = parseNum(f.value.value);
+  $('#fx-hint').textContent = c.code === 'KRW' ? ''
+    : `≈ ${won(toKrw(v, code))} · 환율 ${fmtRate(code)}${state.ratesDate ? ` (${state.ratesDate} 입력)` : ' (예시 환율, 확인 필요)'}`;
+}
+
 for (const name of ['value', 'cost']) {
   form.elements[name].addEventListener('input', (e) => {
-    const digits = e.target.value.replace(/[^\d]/g, '');
-    e.target.value = digits ? Number(digits).toLocaleString('ko-KR') : '';
+    e.target.value = formatAmountInput(e.target.value, form.elements.currency.value);
+    updateFormCurrency();
   });
 }
+form.elements.currency.addEventListener('change', () => {
+  const f = form.elements;
+  f.value.value = formatAmountInput(f.value.value, f.currency.value);
+  f.cost.value = formatAmountInput(f.cost.value, f.currency.value);
+  updateFormCurrency();
+});
 
 $('#cancel-btn').addEventListener('click', () => dialog.close());
 $('#add-btn').addEventListener('click', () => openDialog(null));
@@ -398,6 +493,49 @@ $('#clear-sample-btn').addEventListener('click', () => {
   leaveSample();
   render();
 });
+
+// ---------- 환율 ----------
+function renderFxNote() {
+  const used = [...new Set(state.assets.map((a) => a.currency).filter((c) => c && c !== 'KRW'))];
+  const note = $('#fx-note');
+  note.hidden = used.length === 0;
+  if (!used.length) return;
+  $('#fx-note-text').textContent = `외화 환산 환율: ${used.map((c) => fmtRate(c)).join(' · ')} · `
+    + (state.ratesDate ? `${state.ratesDate} 입력` : '예시 값이니 실제 환율로 고쳐 주세요');
+  note.classList.toggle('warn', !state.ratesDate);
+}
+
+const fxDialog = $('#fx-dialog');
+
+function openFxDialog() {
+  $('#fx-rows').innerHTML = FOREIGN.map((c) => `
+    <label for="fx-${c.code}">${c.unit === 1 ? '1' : c.unit} ${c.code} · ${c.name}
+      <span class="fx-input"><input id="fx-${c.code}" data-code="${c.code}" inputmode="decimal"
+        value="${amountForInput(Number(state.rates?.[c.code] || c.def), 'USD')}"><span>원</span></span>
+    </label>`).join('');
+  $('#fx-date').textContent = state.ratesDate
+    ? `마지막 입력: ${state.ratesDate}`
+    : '아직 환율을 입력하지 않았습니다. 지금 값은 예시이니 은행 앱 등에서 확인해 고쳐 주세요.';
+  fxDialog.showModal();
+}
+
+$('#fx-rows').addEventListener('input', (e) => {
+  if (e.target.dataset.code) e.target.value = formatAmountInput(e.target.value, 'USD');
+});
+
+$('#fx-save').addEventListener('click', () => {
+  const values = [...document.querySelectorAll('#fx-rows input')].map((input) => [input.dataset.code, parseNum(input.value)]);
+  leaveSample();
+  for (const [code, v] of values) if (v > 0) state.rates[code] = v;
+  state.ratesDate = today();
+  save();
+  fxDialog.close();
+  render();
+  toast('환율을 저장했습니다.');
+});
+$('#fx-close').addEventListener('click', () => fxDialog.close());
+$('#fx-btn').addEventListener('click', openFxDialog);
+$('#fx-note-btn').addEventListener('click', openFxDialog);
 
 // ---------- 백업 ----------
 const backupDialog = $('#backup-dialog');
@@ -457,10 +595,13 @@ $('#restore-btn').addEventListener('click', async () => {
       category: catById[a.category] ? a.category : 'etc',
       name: String(a.name ?? ''),
       institution: String(a.institution ?? ''),
+      currency: curByCode[a.currency] ? a.currency : 'KRW',
       value: parseNum(a.value),
       cost: parseNum(a.cost),
       memo: String(a.memo ?? ''),
     })),
+    rates: { ...defaultRates(), ...(data.rates || {}) },
+    ratesDate: String(data.ratesDate ?? ''),
     history: Array.isArray(data.history)
       ? data.history.filter((h) => h && typeof h.date === 'string').map((h) => ({ ...h, net: parseNum(h.net) }))
       : [],
@@ -478,6 +619,7 @@ let askClaude = null;
 let imageLimits = null;
 let scanFiles = [];
 let scanItems = [];
+let scanRates = {};
 let scanCtl = null;
 
 (async () => {
@@ -511,6 +653,7 @@ function resetScan() {
   for (const img of document.querySelectorAll('#scan-previews img')) URL.revokeObjectURL(img.src);
   scanFiles = [];
   scanItems = [];
+  scanRates = {};
   $('#scan-previews').innerHTML = '';
   $('#scan-results').innerHTML = '';
   setScanStatus('');
@@ -544,10 +687,15 @@ function setScanFiles(fileList) {
 function scanPrompt() {
   const known = state.assets.slice(0, 80).map((a) => `- ${a.name} / ${a.institution || '-'}`).join('\n');
   return `첨부한 이미지는 사용자의 은행·증권·가상자산·연금·대출 앱 화면 캡처입니다.
-화면에 보이는 개별 자산과 부채 항목을 모두 찾아 JSON 배열로만 답하세요.
+화면에 보이는 개별 자산과 부채 항목을 모두 찾아 JSON 객체 하나로만 답하세요.
 
-각 원소의 형식:
-{"category": 분류 id, "name": 상품명 또는 종목명, "institution": 금융기관 이름(화면에서 알 수 없으면 ""), "value": 현재 평가금액 또는 잔액(원 단위 숫자), "cost": 매입금액 또는 원금(원 단위 숫자, 없으면 0), "memo": 보유 수량 같은 짧은 참고(없으면 "")}
+형식:
+{"items": [항목, ...], "rates": {"USD": 1385.5}}
+
+항목의 형식:
+{"category": 분류 id, "name": 상품명 또는 종목명, "institution": 금융기관 이름(화면에서 알 수 없으면 ""), "currency": 통화 코드, "value": 현재 평가금액 또는 잔액(그 통화 기준 숫자), "cost": 매입금액 또는 원금(그 통화 기준 숫자, 없으면 0), "memo": 보유 수량 같은 짧은 참고(없으면 "")}
+
+통화 코드: ${CURRENCIES.map((c) => c.code).join(', ')} (목록에 없는 통화면 원화 환산액을 KRW로 적으세요)
 
 분류 id:
 - cash: 입출금·예금·적금·CMA·파킹통장·청약
@@ -561,12 +709,13 @@ function scanPrompt() {
 
 규칙:
 - "총자산", "합계" 같은 합계 줄은 빼고 개별 항목만 적으세요.
-- 외화 자산은 화면에 원화 환산액이 있으면 그 금액을 쓰고, 없으면 value를 0으로 두고 memo에 통화와 금액을 적으세요.
+- 외화 자산(해외주식, 외화예금, 달러 RP 등)은 원화로 바꾸지 말고 화면에 보이는 외화 금액 그대로 currency와 함께 적으세요. 외화 금액은 안 보이고 원화 환산액만 보이면 currency를 KRW로 하고 원화 금액을 적으세요.
+- 화면에 적용 환율(예: "1달러 = 1,385.50원", "환율 1,385.5")이 보이면 rates에 1단위당 원화로 적으세요. 단 JPY는 100엔당 원화입니다. 보이지 않으면 rates는 {}로 두세요.
 - 숫자에는 쉼표나 단위를 넣지 마세요.
 - 잘 안 보여서 확실하지 않은 숫자는 추측하지 말고 그 항목을 빼세요.
-- 자산 항목이 없으면 []로 답하세요.
+- 자산 항목이 없으면 items를 []로 답하세요.
 ${known ? `\n이미 등록된 항목입니다. 같은 항목이면 이름과 기관을 아래와 똑같이 쓰세요.\n${known}\n` : ''}
-예시: [{"category":"stock","name":"삼성전자","institution":"키움증권","value":7120000,"cost":6300000,"memo":"100주"}]`;
+예시: {"items": [{"category":"stock","name":"삼성전자","institution":"키움증권","currency":"KRW","value":7120000,"cost":6300000,"memo":"100주"}, {"category":"stock","name":"애플","institution":"키움증권","currency":"USD","value":2150.4,"cost":1820,"memo":"9주"}], "rates": {"USD": 1385.5}}`;
 }
 
 function scanErrorText(code) {
@@ -598,7 +747,10 @@ async function runScan() {
   setScanStatus('Claude가 화면을 읽고 있습니다. 보통 30초 안팎 걸려요…');
   try {
     const data = await askClaude.json(scanPrompt(), { images: scanFiles, signal: scanCtl.signal });
-    const list = Array.isArray(data) ? data : [];
+    const list = Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+    scanRates = Object.fromEntries(Object.entries(data?.rates || {})
+      .filter(([code, v]) => code !== 'KRW' && curByCode[code] && parseNum(v) > 0)
+      .map(([code, v]) => [code, parseNum(v)]));
     scanItems = list
       .filter((x) => x && typeof x === 'object' && String(x.name ?? '').trim())
       .map((x) => {
@@ -606,6 +758,7 @@ async function runScan() {
           category: catById[x.category] ? x.category : 'etc',
           name: String(x.name).trim(),
           institution: String(x.institution ?? '').trim(),
+          currency: curByCode[x.currency] ? x.currency : 'KRW',
           value: Math.abs(parseNum(x.value)),
           cost: Math.abs(parseNum(x.cost)),
           memo: String(x.memo ?? '').trim(),
@@ -635,21 +788,62 @@ async function runScan() {
   }
 }
 
+// 검토 화면에서 쓸 환율: 화면에서 읽은 환율을 적용하기로 했으면 그것을 쓴다.
+function scanRateTable() {
+  const useScan = Object.keys(scanRates).length && $('#scan-rate-apply')?.checked !== false;
+  return useScan ? { ...state.rates, ...scanRates } : state.rates;
+}
+
+function scanChipText(it) {
+  const parts = [it.match ? `기존 항목 갱신 · 이전 ${fmtAmount(it.match.value, it.match.currency)}` : '새 항목'];
+  if (it.currency !== 'KRW') {
+    const c = cur(it.currency);
+    parts.push(`≈ ${won((it.value * Number(scanRateTable()[c.code] || c.def)) / c.unit)}`);
+  }
+  if (it.memo) parts.push(it.memo);
+  return parts.join(' · ');
+}
+
 function renderScanItems() {
   const catOptions = (sel) => CATEGORIES.map((c) =>
     `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${c.name}</option>`).join('');
-  $('#scan-results').innerHTML = scanItems.map((it, i) => `
+  const curOptions = (sel) => CURRENCIES.map((c) =>
+    `<option value="${c.code}" ${c.code === sel ? 'selected' : ''}>${c.code}</option>`).join('');
+  const rateCodes = Object.keys(scanRates);
+  const rateBox = rateCodes.length ? `
+    <label class="scan-rate" for="scan-rate-apply">
+      <input type="checkbox" id="scan-rate-apply" checked>
+      <span>화면에서 읽은 환율로 업데이트: <strong>${rateCodes.map((c) => fmtRate(c, scanRates)).join(' · ')}</strong>
+      <span class="hint">(지금 ${rateCodes.map((c) => fmtRate(c)).join(' · ')})</span></span>
+    </label>` : '';
+  $('#scan-results').innerHTML = rateBox + scanItems.map((it, i) => `
     <div class="scan-row ${it.checked ? '' : 'off'}" data-i="${i}">
       <input type="checkbox" id="scan-check-${i}" data-f="checked" ${it.checked ? 'checked' : ''} aria-label="저장할 항목으로 선택">
       <select id="scan-cat-${i}" data-f="category" aria-label="분류">${catOptions(it.category)}</select>
       <input id="scan-name-${i}" class="name-input" data-f="name" value="${escapeHtml(it.name)}" aria-label="이름">
       <input id="scan-inst-${i}" class="inst-input" data-f="institution" value="${escapeHtml(it.institution)}" placeholder="기관" aria-label="기관">
-      <input id="scan-value-${i}" class="value-input" data-f="value" inputmode="numeric" value="${it.value.toLocaleString('ko-KR')}" aria-label="평가금액(원)">
-      <span class="chip ${it.match ? 'update' : ''}">${it.match ? `기존 항목 갱신 · 이전 ${won(it.match.value)}` : '새 항목'}${it.memo ? ` · ${escapeHtml(it.memo)}` : ''}</span>
+      <span class="amount-input">
+        <select id="scan-cur-${i}" data-f="currency" aria-label="통화">${curOptions(it.currency)}</select>
+        <input id="scan-value-${i}" class="value-input" data-f="value" inputmode="decimal" value="${amountForInput(it.value, it.currency) || '0'}" aria-label="평가금액">
+      </span>
+      <span class="chip ${it.match ? 'update' : ''}">${escapeHtml(scanChipText(it))}</span>
     </div>`).join('');
 }
 
-$('#scan-results').addEventListener('input', (e) => {
+function refreshScanChips() {
+  document.querySelectorAll('#scan-results .scan-row').forEach((row) => {
+    const it = scanItems[Number(row.dataset.i)];
+    const chip = row.querySelector('.chip');
+    chip.classList.toggle('update', !!it.match);
+    chip.textContent = scanChipText(it);
+  });
+}
+
+function onScanEdit(e) {
+  if (e.target.id === 'scan-rate-apply') {
+    refreshScanChips();
+    return;
+  }
   const row = e.target.closest('.scan-row');
   if (!row) return;
   const it = scanItems[Number(row.dataset.i)];
@@ -658,18 +852,24 @@ $('#scan-results').addEventListener('input', (e) => {
     it.checked = e.target.checked;
     row.classList.toggle('off', !it.checked);
   } else if (f === 'value') {
-    const digits = e.target.value.replace(/[^\d]/g, '');
-    e.target.value = digits ? Number(digits).toLocaleString('ko-KR') : '';
-    it.value = parseNum(digits);
+    e.target.value = formatAmountInput(e.target.value, it.currency);
+    it.value = parseNum(e.target.value);
+  } else if (f === 'currency') {
+    it.currency = e.target.value;
+    const valueInput = row.querySelector('[data-f="value"]');
+    valueInput.value = formatAmountInput(valueInput.value, it.currency);
+    it.value = parseNum(valueInput.value);
+  } else if (f === 'category') {
+    it.category = e.target.value;
   } else if (f) {
     it[f] = e.target.value.trim();
-    if (f === 'name' || f === 'institution') {
-      it.match = findMatch(it);
-      const chip = row.querySelector('.chip');
-      chip.classList.toggle('update', !!it.match);
-      chip.textContent = (it.match ? `기존 항목 갱신 · 이전 ${won(it.match.value)}` : '새 항목') + (it.memo ? ` · ${it.memo}` : '');
-    }
+    if (f === 'name' || f === 'institution') it.match = findMatch(it);
   }
+  refreshScanChips();
+}
+$('#scan-results').addEventListener('input', onScanEdit);
+$('#scan-results').addEventListener('change', (e) => {
+  if (e.target.tagName === 'SELECT' || e.target.type === 'checkbox') onScanEdit(e);
 });
 
 $('#scan-apply').addEventListener('click', () => {
@@ -678,26 +878,32 @@ $('#scan-apply').addEventListener('click', () => {
     setScanStatus('저장할 항목을 하나 이상 체크하세요.');
     return;
   }
+  const applyRates = Object.keys(scanRates).length > 0 && $('#scan-rate-apply')?.checked;
   leaveSample();
+  if (applyRates) {
+    Object.assign(state.rates, scanRates);
+    state.ratesDate = today();
+  }
   let added = 0;
   let updated = 0;
   for (const it of picked) {
     const existing = state.assets.find((a) => a === it.match);
     if (existing) {
       existing.value = it.value;
+      existing.currency = it.currency;
       if (it.cost > 0) existing.cost = it.cost;
       if (it.memo) existing.memo = it.memo;
       updated += 1;
     } else {
-      const { category, name, institution, value, cost, memo } = it;
-      state.assets.push({ id: uid(), category, name, institution, value, cost, memo });
+      const { category, name, institution, currency, value, cost, memo } = it;
+      state.assets.push({ id: uid(), category, name, institution, currency, value, cost, memo });
       added += 1;
     }
   }
   save();
   render();
   scanDialog.close();
-  toast([added && `${added}개 추가`, updated && `${updated}개 갱신`].filter(Boolean).join(', ') + '했습니다.');
+  toast([added && `${added}개 추가`, updated && `${updated}개 갱신`, applyRates && '환율 업데이트'].filter(Boolean).join(', ') + '했습니다.');
 });
 
 $('#scan-btn').addEventListener('click', () => {
@@ -745,6 +951,7 @@ $('#toggle-hide').addEventListener('click', () => {
 function init() {
   const options = CATEGORIES.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
   $('#category-select').innerHTML = options;
+  $('#currency-select').innerHTML = CURRENCIES.map((c) => `<option value="${c.code}">${c.code === 'KRW' ? 'KRW 원' : `${c.code} ${c.symbol}`}</option>`).join('');
   $('#filter').insertAdjacentHTML('beforeend', options);
   let hide = false;
   try { hide = localStorage.getItem(HIDE_KEY) === '1'; } catch (e) { /* 무시 */ }

@@ -220,6 +220,8 @@ dialog form { display: grid; gap: 12px; }
 dialog h2 { margin: 0 0 4px; font-size: 1.1rem; }
 dialog label { display: grid; gap: 4px; font-size: 0.88rem; color: var(--muted); }
 dialog .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+dialog .row.three { grid-template-columns: 6.5rem 1fr 1fr; }
+#fx-hint:empty { display: none; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 
 body.hide-money .money,
@@ -234,7 +236,7 @@ footer {
 }
 
 @media (max-width: 520px) {
-  dialog .row { grid-template-columns: 1fr; }
+  dialog .row, dialog .row.three { grid-template-columns: 1fr; }
   .stat strong { font-size: 1.3rem; }
   #donut { width: 140px; height: 140px; }
 }
@@ -261,7 +263,7 @@ dialog.wide { width: min(780px, calc(100vw - 32px)); }
 .scan-results:empty { display: none; }
 .scan-row {
   display: grid;
-  grid-template-columns: auto 8.5rem minmax(0, 1.4fr) minmax(0, 1fr) 9rem;
+  grid-template-columns: auto 8.5rem minmax(0, 1.3fr) minmax(0, 1fr) 13rem;
   gap: 6px;
   align-items: center;
   padding-bottom: 8px;
@@ -285,6 +287,36 @@ dialog.wide { width: min(780px, calc(100vw - 32px)); }
   .scan-row { grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr); }
   .scan-row .name-input { grid-column: 2 / -1; }
   .scan-row .inst-input { grid-column: 2 / 3; }
-  .scan-row .value-input { grid-column: 3 / 4; width: 100%; }
+  .scan-row .amount-input { grid-column: 3 / 4; }
   .scan-row .chip { grid-column: 2 / -1; justify-self: start; }
 }
+
+/* 외화 */
+.fx-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.fx-note.warn { color: var(--banner-text); background: var(--banner-bg); padding: 8px 12px; border-radius: 8px; }
+.fx-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px 12px; }
+.fx-input { display: flex; align-items: center; gap: 6px; color: var(--text); }
+.fx-input input { text-align: right; font-variant-numeric: tabular-nums; }
+.amount-input { display: flex; gap: 4px; min-width: 0; }
+.amount-input select { width: 5rem; flex-shrink: 0; }
+.amount-input input { min-width: 0; }
+.scan-rate {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  background: var(--banner-bg);
+  color: var(--banner-text);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.88rem;
+}
+.scan-rate input { width: 18px; height: 18px; flex-shrink: 0; margin-top: 2px; }
+.scan-rate .hint { color: inherit; opacity: 0.8; }
