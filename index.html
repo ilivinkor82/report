@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>내 자산 현황</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Sans:wght@500;600&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,15 +12,15 @@
     <h1>내 자산 현황</h1>
     <div class="topbar-actions">
       <button id="toggle-hide" class="btn ghost" title="금액 숨기기/보이기">금액 숨기기</button>
-      <button id="export-btn" class="btn ghost">백업 내보내기</button>
-      <label class="btn ghost file-btn">
-        백업 불러오기
-        <input id="import-input" type="file" accept="application/json" hidden>
-      </label>
+      <button id="backup-btn" class="btn ghost">백업 · 복원</button>
     </div>
   </header>
 
   <main>
+    <div id="sample-banner" class="banner" hidden>
+      <span>지금 보이는 숫자는 <strong>예시 데이터</strong>입니다. 내 자산을 입력하면 이 예시는 사라집니다.</span>
+      <button id="clear-sample-btn" class="btn small">예시 지우고 시작하기</button>
+    </div>
     <section class="summary">
       <div class="card stat primary">
         <span class="label">순자산</span>
@@ -118,7 +119,37 @@
     </form>
   </dialog>
 
-  <footer>데이터는 이 브라우저(localStorage)에만 저장됩니다. 기기를 옮길 때는 백업 내보내기/불러오기를 사용하세요.</footer>
+  <dialog id="backup-dialog">
+    <form id="backup-form" method="dialog">
+      <h2>백업 · 복원</h2>
+      <p class="hint">아래 내용을 복사해 메모장 등에 보관하세요. 복원할 때는 백업 내용을 붙여넣거나 백업 파일을 선택한 뒤 "복원하기"를 누르세요.</p>
+      <textarea id="backup-text" rows="8" spellcheck="false"></textarea>
+      <div class="dialog-actions wrap">
+        <button type="button" id="copy-backup-btn" class="btn ghost">복사</button>
+        <button type="button" id="download-backup-btn" class="btn ghost">파일로 저장</button>
+        <label class="btn ghost file-btn">파일 선택
+          <input id="import-input" type="file" accept="application/json,.json" hidden>
+        </label>
+        <span class="spacer"></span>
+        <button type="button" id="restore-btn" class="btn">복원하기</button>
+        <button type="button" id="close-backup-btn" class="btn ghost">닫기</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirm-dialog">
+    <form method="dialog">
+      <p id="confirm-message"></p>
+      <div class="dialog-actions">
+        <button value="no" class="btn ghost">취소</button>
+        <button value="yes" id="confirm-yes" class="btn danger">확인</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <footer>데이터는 이 브라우저(localStorage)에만 저장됩니다. 브라우저 데이터를 지우면 사라지니 가끔 "백업 · 복원"으로 백업해 두세요.</footer>
 
   <script src="app.js"></script>
 </body>

@@ -18,6 +18,9 @@ const catById = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
 // ---------- 상태 ----------
 let state = load();
 let editingId = null;
+// 저장된 데이터가 없으면 예시 데이터를 보여 주고, 사용자가 처음 입력할 때 비운다.
+let sampleMode = state === null;
+if (sampleMode) state = sampleData();
 
 function load() {
   try {
@@ -29,14 +32,46 @@ function load() {
   } catch (e) {
     console.warn('저장된 데이터를 불러오지 못했습니다.', e);
   }
-  return { assets: [], history: [] };
+  return null;
+}
+
+function sampleData() {
+  const d = (monthsAgo) => {
+    const t = new Date();
+    t.setMonth(t.getMonth() - monthsAgo, 1);
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-01`;
+  };
+  return {
+    assets: [
+      { id: 's1', category: 'cash', name: '주택청약종합저축', institution: '국민은행', value: 12400000, cost: 0, memo: '월 10만원 납입' },
+      { id: 's2', category: 'cash', name: '파킹통장', institution: '토스뱅크', value: 3850000, cost: 0, memo: '' },
+      { id: 's3', category: 'stock', name: '삼성전자', institution: '키움증권', value: 7120000, cost: 6300000, memo: '100주' },
+      { id: 's4', category: 'fund', name: 'TIGER 미국S&P500', institution: '미래에셋증권', value: 9860000, cost: 8000000, memo: '' },
+      { id: 's5', category: 'crypto', name: '비트코인', institution: '업비트', value: 2310000, cost: 3000000, memo: '' },
+      { id: 's6', category: 'pension', name: '연금저축펀드', institution: '삼성증권', value: 6540000, cost: 6000000, memo: '' },
+      { id: 's7', category: 'debt', name: '학자금 대출', institution: '한국장학재단', value: 4200000, cost: 0, memo: '' },
+    ],
+    history: [
+      { date: d(5), net: 30100000 },
+      { date: d(4), net: 31250000 },
+      { date: d(3), net: 30800000 },
+      { date: d(2), net: 33400000 },
+      { date: d(1), net: 35900000 },
+    ],
+  };
+}
+
+function leaveSample() {
+  if (!sampleMode) return;
+  sampleMode = false;
+  state = { assets: [], history: [] };
 }
 
 function save() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (e) {
-    alert('브라우저에 저장하지 못했습니다. 백업 내보내기를 이용해 주세요.');
+    toast('브라우저에 저장하지 못했습니다. "백업 · 복원"에서 내용을 복사해 두세요.');
   }
 }
 
@@ -81,6 +116,26 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { el.hidden = true; }, 3000);
+}
+
+// confirm() 대신 페이지 안 대화상자로 확인을 받는다.
+function askConfirm(message, okLabel = '확인') {
+  const dlg = $('#confirm-dialog');
+  $('#confirm-message').textContent = message;
+  $('#confirm-yes').textContent = okLabel;
+  dlg.returnValue = '';
+  dlg.showModal();
+  return new Promise((resolve) => {
+    dlg.addEventListener('close', () => resolve(dlg.returnValue === 'yes'), { once: true });
+  });
+}
+
 // ---------- 계산 ----------
 function totals() {
   let assets = 0;
@@ -113,6 +168,7 @@ function totals() {
 
 // ---------- 렌더링 ----------
 function render() {
+  $('#sample-banner').hidden = !sampleMode;
   const t = totals();
   renderSummary(t);
   renderDonut(t);
@@ -236,7 +292,7 @@ function renderTable(t) {
         <td class="num">${ret}</td>
         <td class="num">${share}</td>
         <td>
-          <div class="row-actions">
+          <div class="row-actions" ${sampleMode ? 'hidden' : ''}>
             <button class="btn icon" data-edit="${a.id}" title="수정">수정</button>
             <button class="btn icon" data-del="${a.id}" title="삭제">삭제</button>
           </div>
@@ -280,6 +336,7 @@ form.addEventListener('submit', (e) => {
     memo: f.memo.value.trim(),
   };
   if (!data.name) return;
+  leaveSample();
   if (editingId) {
     Object.assign(state.assets.find((a) => a.id === editingId), data);
   } else {
@@ -307,11 +364,14 @@ $('#asset-rows').addEventListener('click', (e) => {
   if (editId) openDialog(state.assets.find((a) => a.id === editId));
   if (delId) {
     const a = state.assets.find((x) => x.id === delId);
-    if (a && confirm(`"${a.name}" 항목을 삭제할까요?`)) {
+    if (!a) return;
+    askConfirm(`"${a.name}" 항목을 삭제할까요?`, '삭제').then((ok) => {
+      if (!ok) return;
       state.assets = state.assets.filter((x) => x.id !== delId);
       save();
       render();
-    }
+      toast('삭제했습니다.');
+    });
   }
 });
 
@@ -319,6 +379,10 @@ $('#filter').addEventListener('change', render);
 
 // ---------- 순자산 기록 ----------
 $('#snapshot-btn').addEventListener('click', () => {
+  if (sampleMode) {
+    toast('내 자산을 먼저 입력한 뒤 기록해 주세요.');
+    return;
+  }
   const t = totals();
   const entry = { date: today(), net: t.net, assets: t.assets, debts: t.debts };
   const idx = state.history.findIndex((h) => h.date === entry.date);
@@ -327,45 +391,84 @@ $('#snapshot-btn').addEventListener('click', () => {
   state.history.sort((a, b) => a.date.localeCompare(b.date));
   save();
   render();
+  toast(`${entry.date} 순자산 ${won(entry.net)}을 기록했습니다.`);
+});
+
+$('#clear-sample-btn').addEventListener('click', () => {
+  leaveSample();
+  render();
 });
 
 // ---------- 백업 ----------
-$('#export-btn').addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+const backupDialog = $('#backup-dialog');
+const backupText = $('#backup-text');
+
+$('#backup-btn').addEventListener('click', () => {
+  backupText.value = sampleMode ? '' : JSON.stringify(state, null, 2);
+  backupDialog.showModal();
+});
+$('#close-backup-btn').addEventListener('click', () => backupDialog.close());
+
+$('#copy-backup-btn').addEventListener('click', () => {
+  const done = () => toast('백업 내용을 복사했습니다.');
+  const fallback = () => {
+    backupText.focus();
+    backupText.select();
+    toast('내용을 선택했습니다. Ctrl+C(⌘+C)로 복사하세요.');
+  };
+  try {
+    navigator.clipboard.writeText(backupText.value).then(done, fallback);
+  } catch (e) {
+    fallback();
+  }
+});
+
+// 일반 브라우저에서는 파일로 저장된다. (Claude 아티팩트 안에서는 다운로드가 막혀 있어 복사를 사용)
+$('#download-backup-btn')?.addEventListener('click', () => {
+  const blob = new Blob([backupText.value], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = `my-assets-${today()}.json`;
   link.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 
 $('#import-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
-  if (!file) return;
+  if (file) backupText.value = await file.text();
+  e.target.value = '';
+});
+
+$('#restore-btn').addEventListener('click', async () => {
+  let data;
   try {
-    const data = JSON.parse(await file.text());
+    data = JSON.parse(backupText.value);
     if (!Array.isArray(data.assets)) throw new Error('형식 오류');
-    if (!confirm('현재 데이터를 백업 파일 내용으로 바꿀까요?')) return;
-    state = {
-      assets: data.assets.map((a) => ({
-        id: a.id || uid(),
-        category: catById[a.category] ? a.category : 'etc',
-        name: String(a.name ?? ''),
-        institution: String(a.institution ?? ''),
-        value: parseNum(a.value),
-        cost: parseNum(a.cost),
-        memo: String(a.memo ?? ''),
-      })),
-      history: Array.isArray(data.history) ? data.history : [],
-    };
-    save();
-    render();
   } catch (err) {
-    alert('백업 파일을 읽지 못했습니다.');
-  } finally {
-    e.target.value = '';
+    toast('백업 내용을 읽지 못했습니다. 복사해 둔 내용 전체를 그대로 붙여넣었는지 확인하세요.');
+    return;
   }
+  if (!sampleMode && !(await askConfirm('현재 데이터를 백업 내용으로 바꿀까요?', '바꾸기'))) return;
+  sampleMode = false;
+  state = {
+    assets: data.assets.map((a) => ({
+      id: a.id || uid(),
+      category: catById[a.category] ? a.category : 'etc',
+      name: String(a.name ?? ''),
+      institution: String(a.institution ?? ''),
+      value: parseNum(a.value),
+      cost: parseNum(a.cost),
+      memo: String(a.memo ?? ''),
+    })),
+    history: Array.isArray(data.history)
+      ? data.history.filter((h) => h && typeof h.date === 'string').map((h) => ({ ...h, net: parseNum(h.net) }))
+      : [],
+  };
+  save();
+  backupDialog.close();
+  render();
+  toast(`자산 ${state.assets.length}개를 복원했습니다.`);
 });
 
 // ---------- 금액 숨기기 ----------
