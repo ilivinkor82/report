@@ -66,6 +66,7 @@
           <select id="filter">
             <option value="all">전체</option>
           </select>
+          <button id="scan-btn" class="btn ghost" hidden>스크린샷으로 추가</button>
           <button id="add-btn" class="btn">+ 자산 추가</button>
         </div>
       </div>
@@ -115,6 +116,27 @@
       <div class="dialog-actions">
         <button type="button" id="cancel-btn" class="btn ghost">취소</button>
         <button type="submit" class="btn">저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="scan-dialog" class="wide">
+    <form id="scan-form" method="dialog">
+      <h2>스크린샷으로 자산 추가</h2>
+      <p class="hint">은행·증권·코인 앱의 잔고 화면을 캡처해 올리면 Claude가 읽어서 항목을 채워 줍니다. 저장하기 전에 확인하고 고칠 수 있어요. 이미 있는 항목은 금액만 새로 고칩니다.</p>
+      <label id="scan-drop" class="dropzone">
+        <input id="scan-input" type="file" accept="image/*" multiple>
+        <span id="scan-drop-text">캡처 이미지를 선택하거나 여기로 끌어다 놓으세요. 붙여넣기(Ctrl+V)도 됩니다.</span>
+      </label>
+      <div id="scan-previews" class="previews"></div>
+      <p id="scan-status" class="hint" role="status"></p>
+      <div id="scan-results" class="scan-results"></div>
+      <div class="dialog-actions wrap">
+        <button type="button" id="scan-close" class="btn ghost">닫기</button>
+        <span class="spacer"></span>
+        <button type="button" id="scan-stop" class="btn ghost" hidden>중지</button>
+        <button type="button" id="scan-run" class="btn" disabled>읽어 오기</button>
+        <button type="button" id="scan-apply" class="btn" hidden>선택 항목 저장</button>
       </div>
     </form>
   </dialog>

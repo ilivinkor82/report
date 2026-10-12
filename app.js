@@ -471,6 +471,265 @@ $('#restore-btn').addEventListener('click', async () => {
   toast(`자산 ${state.assets.length}개를 복원했습니다.`);
 });
 
+// ---------- 스크린샷으로 추가 ----------
+// Claude 아티팩트 안에서만 동작한다. (window.claude가 없으면 버튼이 숨겨진 채로 남는다)
+const scanDialog = $('#scan-dialog');
+let askClaude = null;
+let imageLimits = null;
+let scanFiles = [];
+let scanItems = [];
+let scanCtl = null;
+
+(async () => {
+  if (!window.claude?.use) return;
+  const s = await window.claude.use('sample');
+  if (!s) return;
+  const lim = await s.limits().catch(() => null);
+  if (!lim?.images) return;
+  askClaude = s;
+  imageLimits = lim.images;
+  $('#scan-input').accept = imageLimits.mediaTypes.join(',');
+  $('#scan-btn').hidden = false;
+})();
+
+function normalize(str) {
+  return String(str ?? '').replace(/\s+/g, '').toLowerCase();
+}
+
+function findMatch(item) {
+  if (sampleMode) return null;
+  return state.assets.find((a) => normalize(a.name) === normalize(item.name)
+    && (!item.institution || !a.institution || normalize(a.institution) === normalize(item.institution))) || null;
+}
+
+function setScanStatus(msg) {
+  $('#scan-status').textContent = msg;
+}
+
+function resetScan() {
+  scanCtl?.abort();
+  for (const img of document.querySelectorAll('#scan-previews img')) URL.revokeObjectURL(img.src);
+  scanFiles = [];
+  scanItems = [];
+  $('#scan-previews').innerHTML = '';
+  $('#scan-results').innerHTML = '';
+  setScanStatus('');
+  $('#scan-run').disabled = true;
+  $('#scan-run').hidden = false;
+  $('#scan-apply').hidden = true;
+  $('#scan-stop').hidden = true;
+}
+
+function setScanFiles(fileList) {
+  const files = [...fileList].filter((f) => imageLimits.mediaTypes.includes(f.type));
+  if (!files.length) {
+    setScanStatus('JPG, PNG 같은 이미지 파일을 올려 주세요.');
+    return;
+  }
+  resetScan();
+  scanFiles = files.slice(0, imageLimits.maxCount);
+  $('#scan-previews').innerHTML = '';
+  for (const f of scanFiles) {
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(f);
+    img.alt = f.name || '캡처 이미지';
+    $('#scan-previews').append(img);
+  }
+  setScanStatus(files.length > scanFiles.length
+    ? `한 번에 ${imageLimits.maxCount}장까지 읽을 수 있어 앞의 ${scanFiles.length}장만 사용합니다.`
+    : `이미지 ${scanFiles.length}장을 준비했습니다. "읽어 오기"를 누르세요.`);
+  $('#scan-run').disabled = false;
+}
+
+function scanPrompt() {
+  const known = state.assets.slice(0, 80).map((a) => `- ${a.name} / ${a.institution || '-'}`).join('\n');
+  return `첨부한 이미지는 사용자의 은행·증권·가상자산·연금·대출 앱 화면 캡처입니다.
+화면에 보이는 개별 자산과 부채 항목을 모두 찾아 JSON 배열로만 답하세요.
+
+각 원소의 형식:
+{"category": 분류 id, "name": 상품명 또는 종목명, "institution": 금융기관 이름(화면에서 알 수 없으면 ""), "value": 현재 평가금액 또는 잔액(원 단위 숫자), "cost": 매입금액 또는 원금(원 단위 숫자, 없으면 0), "memo": 보유 수량 같은 짧은 참고(없으면 "")}
+
+분류 id:
+- cash: 입출금·예금·적금·CMA·파킹통장·청약
+- stock: 개별 주식
+- fund: 펀드·ETF
+- crypto: 가상자산
+- realestate: 부동산·전월세 보증금
+- pension: 연금저축·IRP·퇴직연금·보험
+- etc: 기타 자산
+- debt: 대출·카드 결제 예정액 등 부채 (value는 남은 금액을 양수로)
+
+규칙:
+- "총자산", "합계" 같은 합계 줄은 빼고 개별 항목만 적으세요.
+- 외화 자산은 화면에 원화 환산액이 있으면 그 금액을 쓰고, 없으면 value를 0으로 두고 memo에 통화와 금액을 적으세요.
+- 숫자에는 쉼표나 단위를 넣지 마세요.
+- 잘 안 보여서 확실하지 않은 숫자는 추측하지 말고 그 항목을 빼세요.
+- 자산 항목이 없으면 []로 답하세요.
+${known ? `\n이미 등록된 항목입니다. 같은 항목이면 이름과 기관을 아래와 똑같이 쓰세요.\n${known}\n` : ''}
+예시: [{"category":"stock","name":"삼성전자","institution":"키움증권","value":7120000,"cost":6300000,"memo":"100주"}]`;
+}
+
+function scanErrorText(code) {
+  switch (code) {
+    case 'cancelled': return '중지했습니다.';
+    case 'rate_limited': return '요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.';
+    case 'image_rejected': return '이 이미지는 읽을 수 없습니다. JPG나 PNG 캡처로 다시 올려 주세요.';
+    case 'invalid_json':
+    case 'empty_completion':
+    case 'refused': return '화면에서 자산 항목을 찾지 못했습니다. 잔고가 보이는 화면으로 다시 시도해 주세요.';
+    case 'session_expired': return 'Claude 로그인이 만료되었습니다. 다시 로그인한 뒤 시도해 주세요.';
+    case 'not_granted':
+    case 'sampling_disabled':
+    case 'not_declared':
+    case 'capability_disabled':
+    case 'capability_removed':
+    case 'images_unavailable': return '이 화면에서는 Claude가 이미지를 읽을 수 없습니다. 직접 입력해 주세요.';
+    default: return '읽어 오지 못했습니다. 다시 시도해 주세요.';
+  }
+}
+
+async function runScan() {
+  if (!askClaude || !scanFiles.length) return;
+  scanCtl = new AbortController();
+  $('#scan-run').disabled = true;
+  $('#scan-stop').hidden = false;
+  $('#scan-results').innerHTML = '';
+  $('#scan-apply').hidden = true;
+  setScanStatus('Claude가 화면을 읽고 있습니다. 보통 30초 안팎 걸려요…');
+  try {
+    const data = await askClaude.json(scanPrompt(), { images: scanFiles, signal: scanCtl.signal });
+    const list = Array.isArray(data) ? data : [];
+    scanItems = list
+      .filter((x) => x && typeof x === 'object' && String(x.name ?? '').trim())
+      .map((x) => {
+        const item = {
+          category: catById[x.category] ? x.category : 'etc',
+          name: String(x.name).trim(),
+          institution: String(x.institution ?? '').trim(),
+          value: Math.abs(parseNum(x.value)),
+          cost: Math.abs(parseNum(x.cost)),
+          memo: String(x.memo ?? '').trim(),
+        };
+        item.match = findMatch(item);
+        item.checked = item.value > 0;
+        return item;
+      });
+    if (!scanItems.length) {
+      setScanStatus(scanErrorText('empty_completion'));
+    } else {
+      renderScanItems();
+      setScanStatus(`${scanItems.length}개 항목을 찾았습니다. 숫자가 맞는지 확인하고, 저장할 항목만 체크하세요.`);
+      $('#scan-run').hidden = true;
+      $('#scan-apply').hidden = false;
+    }
+  } catch (e) {
+    setScanStatus(scanErrorText(e?.code));
+    if (['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed', 'images_unavailable'].includes(e?.code)) {
+      askClaude = null;
+      $('#scan-btn').hidden = true;
+    }
+  } finally {
+    $('#scan-stop').hidden = true;
+    $('#scan-run').disabled = !scanFiles.length;
+    scanCtl = null;
+  }
+}
+
+function renderScanItems() {
+  const catOptions = (sel) => CATEGORIES.map((c) =>
+    `<option value="${c.id}" ${c.id === sel ? 'selected' : ''}>${c.name}</option>`).join('');
+  $('#scan-results').innerHTML = scanItems.map((it, i) => `
+    <div class="scan-row ${it.checked ? '' : 'off'}" data-i="${i}">
+      <input type="checkbox" id="scan-check-${i}" data-f="checked" ${it.checked ? 'checked' : ''} aria-label="저장할 항목으로 선택">
+      <select id="scan-cat-${i}" data-f="category" aria-label="분류">${catOptions(it.category)}</select>
+      <input id="scan-name-${i}" class="name-input" data-f="name" value="${escapeHtml(it.name)}" aria-label="이름">
+      <input id="scan-inst-${i}" class="inst-input" data-f="institution" value="${escapeHtml(it.institution)}" placeholder="기관" aria-label="기관">
+      <input id="scan-value-${i}" class="value-input" data-f="value" inputmode="numeric" value="${it.value.toLocaleString('ko-KR')}" aria-label="평가금액(원)">
+      <span class="chip ${it.match ? 'update' : ''}">${it.match ? `기존 항목 갱신 · 이전 ${won(it.match.value)}` : '새 항목'}${it.memo ? ` · ${escapeHtml(it.memo)}` : ''}</span>
+    </div>`).join('');
+}
+
+$('#scan-results').addEventListener('input', (e) => {
+  const row = e.target.closest('.scan-row');
+  if (!row) return;
+  const it = scanItems[Number(row.dataset.i)];
+  const f = e.target.dataset.f;
+  if (f === 'checked') {
+    it.checked = e.target.checked;
+    row.classList.toggle('off', !it.checked);
+  } else if (f === 'value') {
+    const digits = e.target.value.replace(/[^\d]/g, '');
+    e.target.value = digits ? Number(digits).toLocaleString('ko-KR') : '';
+    it.value = parseNum(digits);
+  } else if (f) {
+    it[f] = e.target.value.trim();
+    if (f === 'name' || f === 'institution') {
+      it.match = findMatch(it);
+      const chip = row.querySelector('.chip');
+      chip.classList.toggle('update', !!it.match);
+      chip.textContent = (it.match ? `기존 항목 갱신 · 이전 ${won(it.match.value)}` : '새 항목') + (it.memo ? ` · ${it.memo}` : '');
+    }
+  }
+});
+
+$('#scan-apply').addEventListener('click', () => {
+  const picked = scanItems.filter((it) => it.checked && it.name);
+  if (!picked.length) {
+    setScanStatus('저장할 항목을 하나 이상 체크하세요.');
+    return;
+  }
+  leaveSample();
+  let added = 0;
+  let updated = 0;
+  for (const it of picked) {
+    const existing = state.assets.find((a) => a === it.match);
+    if (existing) {
+      existing.value = it.value;
+      if (it.cost > 0) existing.cost = it.cost;
+      if (it.memo) existing.memo = it.memo;
+      updated += 1;
+    } else {
+      const { category, name, institution, value, cost, memo } = it;
+      state.assets.push({ id: uid(), category, name, institution, value, cost, memo });
+      added += 1;
+    }
+  }
+  save();
+  render();
+  scanDialog.close();
+  toast([added && `${added}개 추가`, updated && `${updated}개 갱신`].filter(Boolean).join(', ') + '했습니다.');
+});
+
+$('#scan-btn').addEventListener('click', () => {
+  resetScan();
+  scanDialog.showModal();
+});
+$('#scan-close').addEventListener('click', () => scanDialog.close());
+scanDialog.addEventListener('close', () => scanCtl?.abort());
+$('#scan-run').addEventListener('click', runScan);
+$('#scan-stop').addEventListener('click', () => scanCtl?.abort());
+$('#scan-input').addEventListener('change', (e) => {
+  if (e.target.files.length) setScanFiles(e.target.files);
+  e.target.value = '';
+});
+
+const drop = $('#scan-drop');
+drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', (e) => {
+  e.preventDefault();
+  drop.classList.remove('over');
+  if (e.dataTransfer?.files.length) setScanFiles(e.dataTransfer.files);
+});
+document.addEventListener('paste', (e) => {
+  if (!scanDialog.open || !imageLimits) return;
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.length) {
+    e.preventDefault();
+    setScanFiles(files);
+  }
+});
+
 // ---------- 금액 숨기기 ----------
 function applyHide(hide) {
   document.body.classList.toggle('hide-money', hide);
