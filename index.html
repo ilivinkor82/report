@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>내 자산 현황</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>내 자산 현황</h1>
+    <div class="topbar-actions">
+      <button id="toggle-hide" class="btn ghost" title="금액 숨기기/보이기">금액 숨기기</button>
+      <button id="export-btn" class="btn ghost">백업 내보내기</button>
+      <label class="btn ghost file-btn">
+        백업 불러오기
+        <input id="import-input" type="file" accept="application/json" hidden>
+      </label>
+    </div>
+  </header>
+
+  <main>
+    <section class="summary">
+      <div class="card stat primary">
+        <span class="label">순자산</span>
+        <strong id="net-worth" class="money">0원</strong>
+        <span id="net-change" class="sub"></span>
+      </div>
+      <div class="card stat">
+        <span class="label">총자산</span>
+        <strong id="total-assets" class="money">0원</strong>
+      </div>
+      <div class="card stat">
+        <span class="label">총부채</span>
+        <strong id="total-debts" class="money">0원</strong>
+      </div>
+      <div class="card stat">
+        <span class="label">투자 수익</span>
+        <strong id="total-profit" class="money">0원</strong>
+        <span id="total-return" class="sub"></span>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card">
+        <h2>자산 구성</h2>
+        <div class="allocation">
+          <svg id="donut" viewBox="0 0 120 120" role="img" aria-label="자산 구성 차트"></svg>
+          <ul id="legend" class="legend"></ul>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <h2>순자산 추이</h2>
+          <button id="snapshot-btn" class="btn small">오늘 기록하기</button>
+        </div>
+        <div id="history-chart" class="history"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>자산 목록</h2>
+        <div class="list-tools">
+          <select id="filter">
+            <option value="all">전체</option>
+          </select>
+          <button id="add-btn" class="btn">+ 자산 추가</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>분류</th>
+              <th>이름</th>
+              <th>기관</th>
+              <th class="num">평가금액</th>
+              <th class="num">수익률</th>
+              <th class="num">비중</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="asset-rows"></tbody>
+        </table>
+        <p id="empty" class="empty">아직 등록된 자산이 없습니다. "+ 자산 추가"로 시작해 보세요.</p>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="asset-dialog">
+    <form id="asset-form" method="dialog">
+      <h2 id="dialog-title">자산 추가</h2>
+      <label>분류
+        <select name="category" id="category-select" required></select>
+      </label>
+      <label>이름
+        <input name="name" required placeholder="예: 삼성전자, 청약통장">
+      </label>
+      <label>기관
+        <input name="institution" placeholder="예: 국민은행, 키움증권">
+      </label>
+      <div class="row">
+        <label>평가금액 (원)
+          <input name="value" type="text" inputmode="numeric" required placeholder="0">
+        </label>
+        <label>매입금액 (원, 선택)
+          <input name="cost" type="text" inputmode="numeric" placeholder="수익률 계산용">
+        </label>
+      </div>
+      <label>메모
+        <input name="memo" placeholder="선택">
+      </label>
+      <div class="dialog-actions">
+        <button type="button" id="cancel-btn" class="btn ghost">취소</button>
+        <button type="submit" class="btn">저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <footer>데이터는 이 브라우저(localStorage)에만 저장됩니다. 기기를 옮길 때는 백업 내보내기/불러오기를 사용하세요.</footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
